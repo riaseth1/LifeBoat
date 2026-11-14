@@ -1,107 +1,154 @@
-# Lifeboat: machine-speed defense for AI startups
+<p align="center">
+  <img src="assets/banner.svg" alt="Lifeboat: an orange lifeboat dangles a fake key on a fishing line, and a robot shark bites it while a chest of customer data stays safe" width="100%">
+</p>
 
-**v5: Lifeboat now stops the attack, not just explains it.** Attackers are now AI agents, and AI agents act on text they find.
-Lifeboat plants tripwires that only an automated attacker acts on (a note in `AGENTS.md` asking agents to "register" at an
-internal URL, and a canary AWS key next to the real ones). When one fires, deterministic reflexes apply **reversible**
-containment within half a second (isolate the pod, suspend the identity, quarantine the dataset, suspend the uploader),
-then Claude investigates, adds reversible actions if needed, and queues anything irreversible for human approval.
-The cloud in the demo is **simulated**: no real cloud APIs are called.
+<p align="center">
+  <a href="https://lifeboat-xlxn.onrender.com/"><img alt="Live demo" src="https://img.shields.io/badge/live%20demo-try%20the%20attack-FF5A1F?style=for-the-badge"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-stdlib%20server-0B1F3A?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="Built with Claude" src="https://img.shields.io/badge/built%20with-Claude-0B1F3A?style=for-the-badge">
+  <img alt="Local model" src="https://img.shields.io/badge/local%20model-Ollama-0B1F3A?style=for-the-badge">
+</p>
 
-| Replay of the same attack | Customer files read | Private models | Secrets exposed |
-|---|---|---|---|
-| Protection off | ~250 | 12 | 6 |
-| Protection on | 0 | 0 | 0 (contained 0.4 s after the tripwire) |
+<h3 align="center">Machine-speed defense for AI startups that don't have a security team.</h3>
 
-## Earlier version: local-first incident response
+---
 
-> In July 2026, Hugging Face was breached by an autonomous AI agent: 17,000+ actions over one weekend,
-> starting from a malicious dataset. Its responders ran forensics on an open-weight model on their own
-> hardware. Hugging Face has an ML team to do that. The 30-person AI startup next door doesn't.
-> **Lifeboat gives them the same setup in one command.**
+## The problem
 
-## How it works (4 stages, 3 of them never leave your machine)
+Attackers are starting to use AI agents that move faster than any person can respond. CrowdStrike's [2026 Global Threat Report](https://www.crowdstrike.com/global-threat-report.html) puts the average time from break-in to spreading across systems at 29 minutes, and the fastest it observed at 27 seconds.
 
-| # | Stage | Where | What |
-|---|-------|-------|------|
-| 1 | **Detect** | local, deterministic | Learns each identity's baseline (first 6h), then flags **machine-speed bursts** (the AI-attacker tell) + 16 ML-pipeline rules: remote-code dataset loaders, template injection, shells from workers, SA-token reads, 403 enumeration, exec by service accounts, env/kubeconfig dumps, new-IP credential use, S3 fan-out, private-model downloads… |
-| 2 | **Read raw evidence** | local open-weight model (Ollama / llama.cpp / LM Studio) | Reads payloads, decoded commands, env dumps. Can't refuse, can't leak. Falls back to a rule-based analyzer if no model is running. |
-| 3 | **Redact** | local, enforced in code | Keys, tokens, JWTs, secrets, blobs, employee emails→pseudonyms. `assert_clean()` blocks any request that still contains a secret-shaped string. |
-| 4 | **Investigate** | Claude (tool use) | Gets only redacted findings. Calls tools (`get_group`, `get_credential_inventory`, `get_rotation_playbook`, `get_on_call_roster`, …) to judge each candidate, rebuild the timeline, compute blast radius, order key rotation, write containment steps + a customer notification. Then posts to Slack with one click. |
+Small AI startups hold customer datasets, private models and cloud keys. Most of them have no one watching at 2 AM.
 
-The bar at the top of the UI shows bytes kept on the laptop vs. bytes sent to Claude. **View** shows exactly what each request to Claude contained.
+## The idea
 
-## Run it (5 minutes)
+**AI agents act on text they find.** So Lifeboat leaves bait that only an automated attacker would follow, and the moment it bites, Lifeboat locks things down.
 
-```bash
-pip install anthropic                       # only dependency
-python gen_logs.py                          # writes data/logs.jsonl (12,460 events, 4.6 MB)
-python gen_logs.py --background             # writes data/background.jsonl (normal activity for the v5 live replay)
+- 🪝 **Bait:** a note in `AGENTS.md` asking agents to "register" at an internal URL, plus a canary AWS key planted next to the real ones.
+- ⚡ **Reflex (no AI, under half a second):** isolate the pod, suspend the identity, quarantine the dataset, suspend the uploader. Every automatic action can be undone.
+- 🔍 **Investigate:** Claude rebuilds the timeline, measures the blast radius and writes the incident report.
+- ✋ **Approve:** anything permanent, like rotating real keys, waits for a human in Slack.
 
-# optional but the point of the product: a local model
-ollama pull qwen3:8b                        # ~5 GB. On bad wifi: qwen3:4b, then LOCAL_MODEL=qwen3:4b
-ollama serve                                # if not already running
+## Results
 
-export ANTHROPIC_API_KEY=...                # Claude step
-export SLACK_WEBHOOK_URL=...                # optional: "Send to #incident" posts for real
-python server.py                            # http://localhost:8000
+The same simulated attack, replayed twice:
+
+| | 🔴 Protection off | 🟢 Protection on |
+|---|:---:|:---:|
+| Customer files read | ~250 | **0** |
+| Private models downloaded | 12 | **0** |
+| Secrets exposed | 6 | **0** |
+| Time to contain | never | **0.4 s** after the tripwire |
+
+> The cloud, the company and the attacker in the demo are simulated. No real cloud APIs are called.
+
+## How it works
+
+Customer data stays private: three of the four stages never leave your machine, and Claude only sees scrubbed findings.
+
+```mermaid
+flowchart LR
+    T(["🪝 Tripwire touched"]) -->|0.4 s| R["⚡ Reflex<br/>reversible lockdown"]
+    subgraph local ["Stays on your machine"]
+        L[("Raw logs")] --> D["1. Detect<br/>baselines + rules"]
+        D --> M["2. Local model<br/>reads raw evidence"]
+        M --> X["3. Redact<br/>secrets stripped"]
+    end
+    X --> C["4. Claude<br/>investigates"]
+    R --> C
+    C --> S["✋ Slack<br/>human approves"]
 ```
 
-Env knobs: `CLAUDE_MODEL` (default `claude-sonnet-5-5`), `LOCAL_MODEL`, `LOCAL_LLM_URL`,
-`LOCAL_LLM_API=ollama|openai` (for llama.cpp / LM Studio / vLLM), `LOG_PATH` (your own JSONL), `PORT`.
+| # | Stage | Where | What it does |
+|---|---|---|---|
+| 1 | **Detect** | local, deterministic | Learns each identity's normal behavior over the first 6 hours, then flags machine-speed bursts (the AI-attacker tell) and 16 ML-pipeline rules: remote-code dataset loaders, template injection, shells from workers, service-account token reads, 403 enumeration, env and kubeconfig dumps, new-IP credential use, S3 fan-out, private-model downloads. |
+| 2 | **Read raw evidence** | local open-weight model | Reads payloads, decoded commands and env dumps with Ollama, llama.cpp or LM Studio. Falls back to a rule-based analyzer if no model is running. |
+| 3 | **Redact** | local, enforced in code | Strips keys, tokens, JWTs and secrets, and swaps employee emails for pseudonyms. `assert_clean()` blocks any request that still contains a secret-shaped string. |
+| 4 | **Investigate** | Claude (tool use) | Gets only redacted findings (about 98 KB instead of 4.6 MB of raw logs). Uses tools to judge each lead, rebuild the timeline, order key rotation, draft containment steps and a customer notification, then posts to Slack. |
 
-Without a local model → rule-based analyzer. Without an API key → rule-based report. The demo never hard-fails.
+The UI shows bytes kept on your machine vs. bytes sent to Claude, and **View** shows exactly what each request to Claude contained.
 
-## The synthetic incident (what judges will see)
+## Try it
 
-Fictional "Tessera AI", a fine-tuning-as-a-service startup. Fri 18:00 → Mon 08:00 UTC.
-Hidden in normal noise (incl. an inference gateway that *legitimately* does 70 req/min, which is correctly NOT flagged):
+**Online:** [lifeboat-xlxn.onrender.com](https://lifeboat-xlxn.onrender.com/). Run the attack with protection off, then on. (The public demo uses the rule-based analyzer in place of the local model.)
 
-1. Trial account signs up Fri night, uploads `northwind/eval-mix-v2` with a loader script + template injection
-2. Worker loads it with `trust_remote_code=True` → base64-encoded shell → reads its service-account token
-3. 18 permission probes in 4 seconds (403s) → finds a legacy RBAC binding → `exec` into the training scheduler
-4. Dumps env (AWS key, HF token, W&B key) and a kubeconfig for the inference cluster
-5. AWS key used from outside: 246 customer-dataset objects read in ~80s (192 actions/min vs. 4 normal)
-6. Kubeconfig used on inference-prod: reads `hf-registry-token`, `openai-fallback-key`; cluster-admin attempt denied
-7. HF token downloads 12 private customer fine-tunes
+**Locally (about 5 minutes):**
 
-Plus a decoy: the on-call SRE's legitimate `kubectl exec` on Saturday. Claude should check the on-call roster and clear it.
+```bash
+pip install -r requirements.txt
+python gen_logs.py                 # synthetic weekend of logs (12,460 events)
+python gen_logs.py --background    # normal activity for the live replay
 
-## 3-minute demo script (v5)
+# optional, but it's the point: a local model
+ollama pull qwen3:8b               # ~5 GB (on slow wifi: qwen3:4b, then LOCAL_MODEL=qwen3:4b)
+ollama serve
 
-1. **(20s) Hook.** "In July, an AI agent breached Hugging Face over one weekend. Machine-speed attacks need machine-speed defense. No human answers a page in six minutes on a Saturday."
-2. **(40s) Protection off.** Click **Replay with protection off**. "This is the same attack path, against a startup with no security team." Watch the orange counter climb: customer files read, keys dumped, models downloaded.
-3. **(15s) The insight.** "Attackers are now AI agents, and agents act on text they find. So we booby-trap our own infrastructure with instructions only an agent would follow."
-4. **(45s) Protection on.** Switch to **On** and replay. The agent reads the planted `AGENTS.md`, calls the lure URL, the tripwire fires, and four reversible actions land 0.4 seconds later. Every later attempt says **Denied by Lifeboat**. Counters stay at 0. Slack gets the alert.
-5. **(40s) Claude.** Point at the sidebar: the local model read the raw evidence on this laptop, secrets were redacted, and Claude investigated. Show **Waiting for your approval** (irreversible steps Claude won't take alone) and approve one. Show **View** to prove what left the laptop.
-6. **(20s) Honest limits.** Simulated cloud and synthetic replay. Lures catch agents that follow injected text; careful attackers may skip them, which is why the canary key and the detection rules are layered behind. Every automatic action is reversible.
+export ANTHROPIC_API_KEY=...       # the Claude step
+export SLACK_WEBHOOK_URL=...       # optional: posts alerts to Slack
+python server.py                   # open http://localhost:8000
+```
 
-### Likely judge questions
+No local model? It uses the rule-based analyzer. No API key? It writes a rule-based report. The demo never hard-fails.
 
-- **Why not paste the logs into Claude?** 4.6 MB full of live secrets can't leave the company, and wouldn't fit anyway. The local model reads raw data; Claude gets ~98 KB of redacted findings.
-- **Does it work on real data?** Not yet: synthetic data and a simulated cloud. Next: CloudTrail and Kubernetes audit importers, and real reversible actions (AWS key deactivation, Kubernetes NetworkPolicy).
-- **What if the attacker ignores the lure?** Layers: the canary AWS key catches anyone who dumps the environment, and the rules and machine-speed detection still alert.
-- **Isn't automatic action dangerous?** Only tripwires trigger it (nothing legitimate touches them), and every automatic action is reversible with a one-line undo. Irreversible steps wait for a human.
-- **Isn't this just honeytokens?** Honeytokens exist (for example Thinkst Canary). The new parts are lures written for AI agents, automatic reversible response, and Claude's investigation, packaged for small AI startups.
-- **Who pays?** AI startups with 10 to 200 people, customer data, and no security team. Enterprise tools are priced and built for large security teams.
+<details>
+<summary><b>Settings</b></summary>
 
-## Team split (4 people, ~3.5h)
+`CLAUDE_MODEL` (default `claude-sonnet-5-5`), `LOCAL_MODEL`, `LOCAL_LLM_URL`, `LOCAL_LLM_API=ollama|openai` (for llama.cpp, LM Studio, vLLM), `LOG_PATH` (your own JSONL), `PORT`.
+</details>
 
-- **Claude loop + prompts** (`lifeboat/claude_agent.py`): tune the system prompt and report quality on real runs
-- **Local model** (`lifeboat/local_llm.py`): get Ollama running on the demo laptop FIRST; tune batch size for speed
-- **UI + Slack** (`static/index.html`, `server.py`): set up a Slack incoming webhook in a test workspace
-- **Story + data** (`gen_logs.py`, pitch): rehearse twice, record a backup video before 4:15
+<details>
+<summary><b>The simulated incident</b></summary>
 
-## Files
+"Tessera AI" is a fictional fine-tuning-as-a-service startup with normal startup security: RBAC that blocks some attacker moves, plus the usual gaps. The attack runs Friday 18:00 to Monday 08:00 UTC, hidden in normal noise (including an inference gateway that legitimately does 70 requests a minute and is correctly not flagged):
+
+1. A trial account signs up Friday night and uploads a dataset with a loader script and template injection.
+2. A worker loads it with `trust_remote_code=True`, which runs a base64-encoded shell and reads its service-account token.
+3. 18 permission probes in 4 seconds find a legacy RBAC binding, then exec into the training scheduler.
+4. It dumps env (AWS key, Hugging Face token, W&B key) and a kubeconfig for the inference cluster.
+5. The AWS key is used from outside: 246 customer-dataset objects read in about 80 seconds (192 actions a minute vs. 4 normally).
+6. The kubeconfig reads more secrets on inference-prod. A cluster-admin attempt is denied.
+7. The Hugging Face token downloads 12 private customer fine-tunes.
+
+There's also a decoy: the on-call SRE's legitimate `kubectl exec` on Saturday. Claude checks the on-call roster and clears it.
+</details>
+
+## FAQ
+
+**Why not just paste the logs into Claude?** 4.6 MB of logs full of live secrets shouldn't leave the company, and wouldn't fit anyway. The local model reads the raw data and Claude gets about 98 KB of redacted findings.
+
+**Isn't this just honeytokens?** Honeytokens already exist (for example Thinkst Canary). What's new here: lures written for AI agents, automatic reversible response, and Claude's investigation, packaged for small AI startups.
+
+**What if the attacker ignores the bait?** It's layered. The canary AWS key catches anyone who dumps the environment, and the detection rules and machine-speed checks still raise the alarm.
+
+**Isn't automatic action dangerous?** Only tripwires trigger it (nothing legitimate touches them), and every automatic action has a one-line undo. Irreversible steps wait for a human.
+
+**Who is it for?** AI startups with 10 to 200 people, customer data and no security team.
+
+## Limits and what's next
+
+- **Simulated:** the cloud and logs are synthetic. Next: CloudTrail and Kubernetes audit-log importers.
+- **Real actions:** containment runs against a simulated cloud. Next: real reversible actions (AWS key deactivation, Kubernetes NetworkPolicy).
+- **The bait:** it has only been tested against the simulated attacker. Next: test it against real agent frameworks.
+- **Detection timing:** behavior detection runs after the replay, not while it streams. Next: streaming detection.
+
+<details>
+<summary><b>Project layout</b></summary>
 
 ```
 gen_logs.py              synthetic logs (deterministic seed)
 data/inventory.json      credentials (masked), data assets, on-call roster
-data/directory.json      local-only email → pseudonym map
-lifeboat/detect.py       baselines, machine-speed bursts, rules, candidates, behavior groups
+data/directory.json      local-only email -> pseudonym map
+lifeboat/detect.py       baselines, machine-speed bursts, rules, behavior groups
+lifeboat/scenario.py     tripwires, reflexes, simulated cloud, attacker
 lifeboat/local_llm.py    local model analysis (Ollama/OpenAI-compatible) + rule fallback
 lifeboat/redact.py       enforced redaction + egress guard
 lifeboat/claude_agent.py Claude tool-use investigation + playbooks + fallback report
 lifeboat/pipeline.py     orchestration + live status
-server.py                stdlib web server (UI, /api/run, /api/status, /api/egress, /api/notify)
+lifeboat/notify.py       Slack alerts
+server.py                stdlib web server (UI + API)
 static/index.html        UI
 ```
+</details>
+
+---
+
+<p align="center">Built by <a href="https://github.com/riaseth1">Ria Sethi</a> with Claude.</p>
