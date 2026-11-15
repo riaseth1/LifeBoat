@@ -1,3 +1,5 @@
+> **Live demo paused.** To run Lifeboat yourself, clone this repo, add your own Anthropic API key to `.env`, and follow the setup steps below.
+
 <p align="center">
   <img src="assets/banner.svg" alt="Lifeboat: an orange lifeboat dangles a fake key on a fishing line, and a robot shark bites it while a chest of customer data stays safe" width="100%">
 </p>
